@@ -1,57 +1,53 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:async';
 import 'package:shared_preferences/shared_preferences.dart';
 
+// 1. المتغير العالمي للتحكم في الوضع الليلي (يحل مشكلة عدم استجابة الزر)
+final ValueNotifier<bool> isDarkModeNotifier = ValueNotifier(false);
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // تحميل إعدادات الوضع الليلي عند بدء التطبيق
+  final prefs = await SharedPreferences.getInstance();
+  isDarkModeNotifier.value = prefs.getBool('is_dark_mode') ?? false;
+  
   runApp(const MyApp());
 }
 
-class MyApp extends StatefulWidget {
+class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
   @override
-  State<MyApp> createState() => _MyAppState();
-}
-
-class _MyAppState extends State<MyApp> {
-  bool isDarkMode = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadTheme();
-  }
-
-  Future<void> _loadTheme() async {
-    final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      isDarkMode = prefs.getBool('is_dark_mode') ?? false;
-    });
-  }
-
-  @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'مواقيت الصلاة - المغرب',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF00695C)),
-        useMaterial3: true,
-        brightness: Brightness.light,
-      ),
-      darkTheme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF00695C),
-          brightness: Brightness.dark,
-        ),
-        useMaterial3: true,
-        brightness: Brightness.dark,
-      ),
-      themeMode: isDarkMode ? ThemeMode.dark : ThemeMode.light,
-      home: const PrayerTimesScreen(),
+    // 2. استخدام ValueListenableBuilder لتغيير الثيم فوراً دون إعادة تشغيل
+    return ValueListenableBuilder<bool>(
+      valueListenable: isDarkModeNotifier,
+      builder: (context, isDark, child) {
+        return MaterialApp(
+          title: 'مواقيت الصلاة - المغرب',
+          debugShowCheckedModeBanner: false,
+          locale: const Locale('ar'),
+          supportedLocales: const [Locale('ar')],
+          theme: ThemeData(
+            colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF00695C)),
+            useMaterial3: true,
+            brightness: Brightness.light,
+          ),
+          darkTheme: ThemeData(
+            colorScheme: ColorScheme.fromSeed(
+              seedColor: const Color(0xFF00695C),
+              brightness: Brightness.dark,
+            ),
+            useMaterial3: true,
+            brightness: Brightness.dark,
+          ),
+          themeMode: isDark ? ThemeMode.dark : ThemeMode.light,
+          home: const PrayerTimesScreen(),
+        );
+      },
     );
   }
 }
@@ -87,13 +83,12 @@ class _PrayerTimesScreenState extends State<PrayerTimesScreen> {
     {'name': 'Zagora', 'ar': 'زاكورة'}, {'name': 'Tan-Tan', 'ar': 'طانطان'},
     {'name': 'Sidi Ifni', 'ar': 'سيدي إفني'}, {'name': 'Tinghir', 'ar': 'تنغير'},
     {'name': 'Tarfaya', 'ar': 'طرفاية'}, {'name': 'Smara', 'ar': 'السمارة'},
-    {'name': 'Boujdour', 'ar': 'بوجدور'}, {'name': 'Assa-Zag', 'ar': 'أسا الزاك'},
-    {'name': 'Chefchaouen', 'ar': 'شفشاون'}, {'name': 'Asilah', 'ar': 'أصيلة'},
-    {'name': 'Martil', 'ar': 'مرتيل'}, {'name': 'Fnideq', 'ar': 'الفنيدق'},
-    {'name': 'Ouezzane', 'ar': 'وزان'}, {'name': 'Sefrou', 'ar': 'صفرو'},
-    {'name': 'Berkane', 'ar': 'بركان'}, {'name': 'Figuig', 'ar': 'فكيك'},
-    {'name': 'Jerada', 'ar': 'جرادة'}, {'name': 'Boulemane', 'ar': 'بولمان'},
-    {'name': 'Hajeb', 'ar': 'الحاجب'}, {'name': 'Zag', 'ar': 'زاك'},
+    {'name': 'Boujdour', 'ar': 'بوجدور'}, {'name': 'Chefchaouen', 'ar': 'شفشاون'},
+    {'name': 'Asilah', 'ar': 'أصيلة'}, {'name': 'Martil', 'ar': 'مرتيل'},
+    {'name': 'Fnideq', 'ar': 'الفنيدق'}, {'name': 'Ouezzane', 'ar': 'وزان'},
+    {'name': 'Sefrou', 'ar': 'صفرو'}, {'name': 'Berkane', 'ar': 'بركان'},
+    {'name': 'Figuig', 'ar': 'فكيك'}, {'name': 'Jerada', 'ar': 'جرادة'},
+    {'name': 'Boulemane', 'ar': 'بولمان'}, {'name': 'Hajeb', 'ar': 'الحاجب'},
     {'name': 'Tata', 'ar': 'طاطا'}, {'name': 'Aousserd', 'ar': 'أوسرد'},
   ];
 
@@ -108,7 +103,7 @@ class _PrayerTimesScreenState extends State<PrayerTimesScreen> {
   String nextPrayerTime = '';
   String timeRemaining = '00:00:00';
   Timer? countdownTimer;
-  bool isDarkMode = false;
+  DateTime? _nextPrayerDateTime; // متغير داخلي لحساب الوقت بدقة
 
   @override
   void initState() {
@@ -121,7 +116,6 @@ class _PrayerTimesScreenState extends State<PrayerTimesScreen> {
     setState(() {
       selectedCity = prefs.getString('selected_city') ?? 'Rabat';
       selectedCityArabic = prefs.getString('selected_city_arabic') ?? 'الرباط';
-      isDarkMode = prefs.getBool('is_dark_mode') ?? false;
     });
     await fetchPrayerTimes();
   }
@@ -130,91 +124,121 @@ class _PrayerTimesScreenState extends State<PrayerTimesScreen> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('selected_city', selectedCity);
     await prefs.setString('selected_city_arabic', selectedCityArabic);
-    await prefs.setBool('is_dark_mode', isDarkMode);
   }
 
-  int _timeToMinutes(String timeStr) {
-    final parts = timeStr.split(':');
-    return int.parse(parts[0]) * 60 + int.parse(parts[1]);
-  }
-
+  // 3. منطق الجلب مع دعم العمل بدون إنترنت (Offline Mode)
   Future<void> fetchPrayerTimes() async {
     setState(() { isLoading = true; errorMessage = ''; });
 
     try {
       final url = Uri.parse('https://api.aladhan.com/v1/timingsByCity?city=$selectedCity&country=Morocco&method=21');
-      final response = await http.get(url).timeout(const Duration(seconds: 15));
+      final response = await http.get(url).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
         final jsonResponse = jsonDecode(response.body);
         if (jsonResponse['code'] == 200 && jsonResponse['data'] != null) {
-          final data = jsonResponse['data'];
-          final times = data['timings'];
-          final hijri = data['date']['hijri'];
-          final gregorian = data['date']['gregorian'];
-
-          setState(() {
-            timings = {
-              'الفجر': times['Fajr'] ?? '--:--',
-              'الشروق': times['Sunrise'] ?? '--:--',
-              'الظهر': times['Dhuhr'] ?? '--:--',
-              'العصر': times['Asr'] ?? '--:--',
-              'المغرب': times['Maghrib'] ?? '--:--',
-              'العشاء': times['Isha'] ?? '--:--',
-            };
-            hijriDate = '${hijri['weekday']['ar']} ${hijri['day']} ${hijri['month']['ar']} ${hijri['year']}';
-            gregorianDate = '${gregorian['weekday']['en']} ${gregorian['day']} ${gregorian['month']['en']} ${gregorian['year']}';
-            isLoading = false;
-          });
-
-          _calculateNextPrayer();
-          await _saveSettings();
+          // حفظ البيانات في الذاكرة المحلية للعمل بدون نت
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('cache_$selectedCity', response.body);
+          
+          _processData(response.body);
         } else {
-          setState(() { errorMessage = 'فشل في جلب البيانات'; isLoading = false; });
+          _loadFromCache();
         }
       } else {
-        setState(() { errorMessage = 'خطأ في الخادم: ${response.statusCode}'; isLoading = false; });
+        _loadFromCache();
       }
     } catch (e) {
-      setState(() { errorMessage = 'خطأ في الاتصال: $e'; isLoading = false; });
+      _loadFromCache();
     }
   }
 
+  Future<void> _loadFromCache() async {
+    final prefs = await SharedPreferences.getInstance();
+    final cached = prefs.getString('cache_$selectedCity');
+    if (cached != null) {
+      _processData(cached, isOffline: true);
+    } else {
+      setState(() { 
+        errorMessage = 'لا يوجد اتصال بالإنترنت ولا توجد بيانات محفوظة مسبقاً لهذه المدينة.'; 
+        isLoading = false; 
+      });
+    }
+  }
+
+  void _processData(String jsonString, {bool isOffline = false}) {
+    final jsonResponse = jsonDecode(jsonString);
+    final data = jsonResponse['data'];
+    final times = data['timings'];
+    final hijri = data['date']['hijri'];
+    final gregorian = data['date']['gregorian'];
+
+    setState(() {
+      timings = {
+        'الفجر': times['Fajr'] ?? '--:--',
+        'الشروق': times['Sunrise'] ?? '--:--',
+        'الظهر': times['Dhuhr'] ?? '--:--',
+        'العصر': times['Asr'] ?? '--:--',
+        'المغرب': times['Maghrib'] ?? '--:--',
+        'العشاء': times['Isha'] ?? '--:--',
+      };
+      hijriDate = '${hijri['weekday']['ar']} ${hijri['day']} ${hijri['month']['ar']} ${hijri['year']}';
+      gregorianDate = '${gregorian['weekday']['en']} ${gregorian['day']} ${gregorian['month']['en']} ${gregorian['year']}';
+      isLoading = false;
+      if (isOffline) errorMessage = 'أنت بدون إنترنت. يتم عرض آخر مواقيت محفوظة.';
+    });
+
+    _calculateNextPrayer();
+    _saveSettings();
+  }
+
+  // 4. الخوارزمية الذكية لحساب الصلاة القادمة (تتعامل مع منتصف الليل وتغيير اليوم)
   void _calculateNextPrayer() {
     final now = DateTime.now();
-    final currentMinutes = now.hour * 60 + now.minute;
     final prayerOrder = ['الفجر', 'الشروق', 'الظهر', 'العصر', 'المغرب', 'العشاء'];
+    
+    DateTime? nextPrayerDateTime;
+    String? nextPrayerName;
 
     for (var prayer in prayerOrder) {
       if (timings.containsKey(prayer)) {
-        final prayerMinutes = _timeToMinutes(timings[prayer]!);
-        if (prayerMinutes > currentMinutes) {
-          setState(() {
-            nextPrayer = prayer;
-            nextPrayerTime = timings[prayer]!;
-          });
-          _startCountdown(timings[prayer]!);
-          return;
+        final parts = timings[prayer]!.split(':');
+        int hour = int.parse(parts[0]);
+        int minute = int.parse(parts[1]);
+        
+        DateTime prayerTimeToday = DateTime(now.year, now.month, now.day, hour, minute);
+        
+        if (prayerTimeToday.isAfter(now)) {
+          nextPrayerDateTime = prayerTimeToday;
+          nextPrayerName = prayer;
+          break;
         }
       }
     }
 
+    // إذا انتهت صلوات اليوم، الصلاة القادمة هي فجر الغد
+    if (nextPrayerDateTime == null) {
+      final fajrParts = timings['الفجر']!.split(':');
+      int hour = int.parse(fajrParts[0]);
+      int minute = int.parse(fajrParts[1]);
+      nextPrayerDateTime = DateTime(now.year, now.month, now.day + 1, hour, minute);
+      nextPrayerName = 'الفجر';
+    }
+
     setState(() {
-      nextPrayer = 'الفجر';
-      nextPrayerTime = timings['الفجر']!;
+      this.nextPrayer = nextPrayerName!;
+      this.nextPrayerTime = timings[nextPrayerName]!;
+      this._nextPrayerDateTime = nextPrayerDateTime!;
     });
-    _startCountdown(timings['الفجر']!);
+    
+    _startCountdown();
   }
 
-  void _startCountdown(String prayerTime) {
+  void _startCountdown() {
     countdownTimer?.cancel();
     countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       final now = DateTime.now();
-      final parts = prayerTime.split(':');
-      final prayerDateTime = DateTime(now.year, now.month, now.day, int.parse(parts[0]), int.parse(parts[1]));
-
-      // إذا حان الوقت أو مر، نوقف العداد ولا نعيد التحميل تلقائياً (هذا يمنع الوميض)
-      if (prayerDateTime.isBefore(now) || prayerDateTime.isAtSameMomentAs(now)) {
+      if (_nextPrayerDateTime!.isBefore(now) || _nextPrayerDateTime!.isAtSameMomentAs(now)) {
         timer.cancel();
         setState(() {
           timeRemaining = "00:00:00";
@@ -223,16 +247,11 @@ class _PrayerTimesScreenState extends State<PrayerTimesScreen> {
         return;
       }
 
-      final difference = prayerDateTime.difference(now);
+      final difference = _nextPrayerDateTime!.difference(now);
       setState(() {
         timeRemaining = '${difference.inHours.toString().padLeft(2, '0')}:${(difference.inMinutes % 60).toString().padLeft(2, '0')}:${(difference.inSeconds % 60).toString().padLeft(2, '0')}';
       });
     });
-  }
-
-  Future<void> _toggleDarkMode() async {
-    setState(() { isDarkMode = !isDarkMode; });
-    await _saveSettings();
   }
 
   @override
@@ -250,13 +269,12 @@ class _PrayerTimesScreenState extends State<PrayerTimesScreen> {
         backgroundColor: const Color(0xFF00695C),
         foregroundColor: Colors.white,
         elevation: 0,
-        actions: [
-          IconButton(icon: Icon(isDarkMode ? Icons.light_mode : Icons.dark_mode), onPressed: _toggleDarkMode),
-        ],
       ),
+      // 5. الشريط الجانبي الاحترافي
+      drawer: _buildDrawer(),
       body: isLoading
           ? const Center(child: CircularProgressIndicator(color: Color(0xFF00695C)))
-          : errorMessage.isNotEmpty
+          : errorMessage.isNotEmpty && timings.isEmpty
               ? Center(
                   child: Padding(
                     padding: const EdgeInsets.all(24.0),
@@ -285,6 +303,8 @@ class _PrayerTimesScreenState extends State<PrayerTimesScreen> {
                       padding: const EdgeInsets.all(16.0),
                       child: Column(
                         children: [
+                          if (errorMessage.isNotEmpty && timings.isNotEmpty) 
+                            Container(padding: const EdgeInsets.all(8), color: Colors.orange.withOpacity(0.2), child: Text(errorMessage, style: const TextStyle(color: Colors.orange))),
                           _buildNextPrayerCard(),
                           const SizedBox(height: 16),
                           _buildCitySelector(),
@@ -302,6 +322,157 @@ class _PrayerTimesScreenState extends State<PrayerTimesScreen> {
                     ),
                   ),
                 ),
+    );
+  }
+
+  Widget _buildDrawer() {
+    return Drawer(
+      child: ListView(
+        padding: EdgeInsets.zero,
+        children: [
+          DrawerHeader(
+            decoration: const BoxDecoration(color: Color(0xFF00695C)),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                const Icon(Icons.mosque, color: Colors.white, size: 40),
+                const SizedBox(height: 8),
+                Text(selectedCityArabic, style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
+                Text(hijriDate, style: const TextStyle(color: Colors.white70, fontSize: 14)),
+              ],
+            ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.home, color: Color(0xFF00695C)),
+            title: const Text('الرئيسية'),
+            onTap: () => Navigator.pop(context),
+          ),
+          ListTile(
+            leading: const Icon(Icons.sort, color: Color(0xFF00695C)),
+            title: const Text('المسبحة الإلكترونية'),
+            subtitle: const Text('عداد التسبيح والذكر', style: TextStyle(fontSize: 12)),
+            onTap: () {
+              Navigator.pop(context);
+              _showTasbeehDialog();
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.menu_book, color: Color(0xFF00695C)),
+            title: const Text('الأذكار'),
+            subtitle: const Text('أذكار الصباح والمساء', style: TextStyle(fontSize: 12)),
+            onTap: () {
+              Navigator.pop(context);
+              _showAdhkarDialog();
+            },
+          ),
+          const Divider(),
+          ValueListenableBuilder<bool>(
+            valueListenable: isDarkModeNotifier,
+            builder: (context, isDark, child) {
+              return SwitchListTile(
+                secondary: Icon(isDark ? Icons.light_mode : Icons.dark_mode, color: const Color(0xFF00695C)),
+                title: const Text('الوضع الليلي'),
+                value: isDark,
+                onChanged: (value) async {
+                  isDarkModeNotifier.value = value;
+                  final prefs = await SharedPreferences.getInstance();
+                  await prefs.setBool('is_dark_mode', value);
+                },
+              );
+            },
+          ),
+          const Divider(),
+          ListTile(
+            leading: const Icon(Icons.info_outline, color: Color(0xFF00695C)),
+            title: const Text('حول التطبيق'),
+            onTap: () {
+              Navigator.pop(context);
+              showAboutDialog(
+                context: context,
+                applicationName: 'مواقيت الصلاة - المغرب',
+                applicationVersion: '3.0.0',
+                children: [
+                  const Text('تطبيق شامل لعرض مواقيت الصلاة حسب مدن المملكة المغربية.'),
+                  const SizedBox(height: 8),
+                  const Text('المصدر: وزارة الأوقاف والشؤون الإسلامية المغربية (طريقة الحساب 21).'),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  // 6. ميزة المسبحة الإلكترونية (بدون أي أذونات خارجية)
+  void _showTasbeehDialog() {
+    int count = 0;
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              title: const Text('المسبحة الإلكترونية', textAlign: TextAlign.center),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('$count', style: const TextStyle(fontSize: 64, fontWeight: FontWeight.bold, color: Color(0xFF00695C))),
+                  const SizedBox(height: 20),
+                  ElevatedButton(
+                    onPressed: () {
+                      setState(() => count++);
+                      HapticFeedback.lightImpact(); // اهتزاز خفيف مدمج في Flutter
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF00695C),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.all(24),
+                      shape: const CircleBorder(),
+                    ),
+                    child: const Icon(Icons.touch_app, size: 48),
+                  ),
+                  const SizedBox(height: 16),
+                  TextButton(
+                    onPressed: () => setState(() => count = 0),
+                    child: const Text('تصفير العداد', style: TextStyle(color: Colors.red)),
+                  )
+                ],
+              ),
+              actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('إغلاق'))],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // 7. ميزة الأذكار
+  void _showAdhkarDialog() {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('من الأذكار', textAlign: TextAlign.center),
+          content: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: const [
+                Text('• سُبْحَانَ اللَّهِ وَبِحَمْدِهِ، سُبْحَانَ اللَّهِ الْعَظِيمِ.', style: TextStyle(fontSize: 18, height: 1.5)),
+                SizedBox(height: 16),
+                Text('• لَا إِلَهَ إِلَّا اللَّهُ وَحْدَهُ لَا شَرِيكَ لَهُ، لَهُ الْمُلْكُ وَلَهُ الْحَمْدُ، وَهُوَ عَلَى كُلِّ شَيْءٍ قَدِيرٌ.', style: TextStyle(fontSize: 18, height: 1.5)),
+                SizedBox(height: 16),
+                Text('• اللَّهُمَّ صَلِّ وَسَلِّمْ عَلَى نَبِيِّنَا مُحَمَّدٍ.', style: TextStyle(fontSize: 18, height: 1.5)),
+                SizedBox(height: 16),
+                Text('• أَسْتَغْفِرُ اللَّهَ الْعَظِيمَ الَّذِي لَا إِلَهَ إِلَّا هُوَ، الْحَيُّ الْقَيُّومُ، وَأَتُوبُ إِلَيْهِ.', style: TextStyle(fontSize: 18, height: 1.5)),
+              ],
+            ),
+          ),
+          actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('إغلاق'))],
+        );
+      },
     );
   }
 
@@ -419,7 +590,7 @@ class _PrayerTimesScreenState extends State<PrayerTimesScreen> {
       default: icon = Icons.access_time; color = Colors.grey;
     }
 
-    final isNextPrayer = name == nextPrayer;
+    final isNextPrayer = name == nextPrayer && timeRemaining != "00:00:00";
 
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 6),
